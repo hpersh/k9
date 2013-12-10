@@ -1,21 +1,55 @@
 	.bss
 
+_intr_lvl:	.space	4
 _intr_sp_save:	.space	4
+_intr_stk_end:	.space	4
 	
 	.text
 
+	.global	k9_cpu_intr_stk_end_set
+k9_cpu_intr_stk_end_set:
+	movl	4(%esp),%eax
+	movl	%eax,_intr_stk_end
+	ret
+	
 _intr_cntxt_leave:
 	movl	_intr_sp_save,%esp
 	ret	
 	
-	.global	k9_cpu_intr_cntxt_enter
-k9_cpu_intr_cntxt_enter:
+_intr_cntxt_enter:
 	movl	%esp,%eax
 	movl	%eax,_intr_sp_save
-	movl	_k9_intr_stk_end,%esp
-	pushl	8(%eax)
+	movl	_intr_stk_end,%esp
+	pushl	12(%eax)
 	pushl	$_intr_cntxt_leave
-	pushl	4(%eax)
+	pushl	8(%eax)
+	ret
+
+	.global	k9_cpu_isr
+k9_cpu_isr:	
+	movl	_intr_lvl,%eax
+	incl	%eax
+	movl	%eax,_intr_lvl
+	cmpl	$1,%eax
+	jne	k9_cpu_isr2
+	call	_intr_cntxt_enter
+	jmp	k9_cpu_isr3
+k9_cpu_isr2:
+	movl	8(%esp),%eax
+	pushl	%eax
+	movl	8(%esp),%eax
+	call	%eax
+	lea	4(%esp),%esp
+k9_cpu_isr3:
+	movl	_intr_lvl,%eax
+	decl	%eax
+	movl	%eax,_intr_lvl
+	call	_k9_task_resched
+	ret
+
+	.global	k9_cpu_intr_lvl
+k9_cpu_intr_lvl:	
+	movl	_intr_lvl,%eax
 	ret
 	
 _task_exit:
