@@ -937,7 +937,11 @@ k9_isr(void (*func)(void *), void *arg)
     (*func)(arg);
   }
 
-  if (--intr_lvl == 0)  task_resched();
+  if (--intr_lvl == 0) {
+    k9_cpu_intr_dis();
+
+    task_resched();
+  }
 }
 
 
