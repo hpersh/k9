@@ -197,10 +197,11 @@ static struct pq      tmout_pq[1];
 
 extern uint32 k9_cpu_intr_dis(void);
 extern void   k9_cpu_intr_restore(uint32);
-extern void   *k9_cpu_sp_set(void *);
 extern uint32 k9_cpu_cntxt_save(void **);
 extern void   k9_cpu_cntxt_restore(void *);
 extern void   *k9_cpu_cntxt_init(void *stk_end, void (* entry)(void *), void *arg);
+extern uint32 k9_cpu_intr_cntxt_enter(void (*func)(void *), void *arg);
+extern void   k9_cpu_intr_cntxt_leave(void);
 
 static unsigned cur_ticks;
 
@@ -340,6 +341,7 @@ task_select(void)
 
   if (cur_task->state != K9_TASK_STATE_RUNNING) {
     /* Current task no longer running
+
        => Must select new task; if none ready, use idle task
     */
 
@@ -349,6 +351,7 @@ task_select(void)
   if (rdy_task == 0) {
     /* Current task is running
        && no other task ready to run
+
        => Stay with current task
     */
 
@@ -359,6 +362,7 @@ task_select(void)
     /* Current task is running
        && other task ready to run
        && current task is idle task
+
        => Switch to ready task
 
        N.B.
@@ -375,6 +379,7 @@ task_select(void)
        && other task ready to run
        && current task is not idle task
        && current task is not pre-emptible
+
        => Stay with current task
 
        N.B.
@@ -391,6 +396,7 @@ task_select(void)
        && current task is not idle task
        && current task is pre-emptible
        && ready task and current task have different priorities
+
        => Choose task with higher priority
     */
 
@@ -404,6 +410,7 @@ task_select(void)
        && current task is pre-emptible
        && ready task and current task have same priority
        && (current task has yielded or consumed its timeslice)
+
        => Switch to ready task
     */
 
@@ -417,6 +424,7 @@ task_select(void)
      && ready task and current task have same priority
      && current task has not yielded
      && current task has not consumed its timeslice
+
      => Stay with current task
   */
     
@@ -923,19 +931,13 @@ k9_sem_give(struct k9_sem * const s)
 void
 k9_isr(void (*func)(void *), void *arg)
 {
-  if (intr_lvl == 0) {
-    if (k9_cpu_intr_cntxt_enter() == 0) {
-      task_resched();
-
-      return;
-    }
+  if (++intr_lvl == 1) {
+    k9_cpu_intr_cntxt_enter(func, arg);
+  } else {
+    (*func)(arg);
   }
 
-  ++intr_lvl;
-
-  (*func)(arg);
-
-  if (--intr_lvl == 0)  k9_cpu_intr_cntxt_leave();
+  if (--intr_lvl == 0)  task_resched();
 }
 
 
@@ -948,14 +950,14 @@ k9_init(void)
   LIST_INIT(task_list);
 }
 
-void *k9_intr_stk_end;
+void *_k9_intr_stk_end;
 
 void
 k9_start(struct k9_task *root_task, struct k9_task *_idle_task, void *intr_stk_end)
 {
   idle_task = _idle_task;
 
-  k9_intr_stk_end = intr_stk_end;
+  _k9_intr_stk_end = intr_stk_end;
 
   (cur_task = root_task)->state = K9_TASK_STATE_RUNNING;
   cur_task->cur_slice = cur_task->slice;
@@ -988,6 +990,8 @@ test_isr(void *arg)
 {
   printf("%s\n", "test_isr task starting...");
 
+  printf("test_isr: Got arg %p\n", arg);
+
   k9_tick();
 
   printf("%s\n", "test_isr task ending");
@@ -1002,7 +1006,7 @@ test_appl1_main(void *arg)
     printf("%s\n", "test_appl1 signaling...");
     k9_ev_signal(&test_ev[0]);
 
-    k9_isr(test_isr, 0);
+    k9_isr(test_isr, (void *) 0x1234);
 
     printf("%s\n", "test_appl1 waiting...");
     k9_ev_wait1(&test_ev[1], 0);
