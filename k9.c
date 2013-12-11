@@ -244,9 +244,10 @@ tmout_erase(struct k9_task * const task)
   pq_erase(task->u.blocked.tmout.pq_node);
 }
 
-static void
+static unsigned 
 tmout_chk(void)
 {
+  unsigned       result = 0;
   struct pq_node *nd;
 
   while (nd = pq_first(tmout_pq)) {
@@ -255,7 +256,11 @@ tmout_chk(void)
     if (ticks_cmp(task->u.blocked.tmout.deadline, cur_ticks) > 0)  break;
         
     task_unblock(task, K9_TIMED_OUT);
+
+    ++result;
   }
+
+  return (result);
 }
 
 static void
@@ -294,9 +299,7 @@ k9_tick(void)
 
   task_ticks_update();
 
-  tmout_chk();
-
-  _k9_task_resched();
+  if (tmout_chk())  _k9_task_resched();
 
   k9_cpu_intr_restore(old);
 }
