@@ -167,8 +167,8 @@ pq_init(struct pq *pq, unsigned size, struct pq_node **arr, int (*cmp)(struct pq
 static int
 pq_node_task_pri_cmp(struct pq_node *nd1, struct pq_node *nd2)
 {
-  return (FIELD_PTR_TO_STRUCT_PTR(nd1, struct k9_task, u.ready.pq_node)->effpri
-	  - FIELD_PTR_TO_STRUCT_PTR(nd2, struct k9_task, u.ready.pq_node)->effpri
+  return (FIELD_PTR_TO_STRUCT_PTR(nd1, struct k9_task, u->ready->pq_node)->effpri
+	  - FIELD_PTR_TO_STRUCT_PTR(nd2, struct k9_task, u->ready->pq_node)->effpri
 	  );
 }
 
@@ -185,8 +185,8 @@ ticks_cmp(unsigned t1, unsigned t2)
 static int
 pq_node_task_tmout_cmp(struct pq_node *nd1, struct pq_node *nd2)
 {
-  return (ticks_cmp(FIELD_PTR_TO_STRUCT_PTR(nd1, struct k9_task, u.blocked.tmout.pq_node)->u.blocked.tmout.deadline,
-		    FIELD_PTR_TO_STRUCT_PTR(nd2, struct k9_task, u.blocked.tmout.pq_node)->u.blocked.tmout.deadline
+  return (ticks_cmp(FIELD_PTR_TO_STRUCT_PTR(nd1, struct k9_task, u->blocked->tmout->pq_node)->u->blocked->tmout->deadline,
+		    FIELD_PTR_TO_STRUCT_PTR(nd2, struct k9_task, u->blocked->tmout->pq_node)->u->blocked->tmout->deadline
 		    )
 	  );
 }
@@ -228,20 +228,20 @@ tmout_insert(struct k9_task * const task, unsigned tmout)
   struct list *p;
 
   if (tmout == K9_TMOUT_FOREVER) {
-    pq_node_init(task->u.blocked.tmout.pq_node);
+    pq_node_init(task->u->blocked->tmout->pq_node);
 
     return;
   }
   
-  task->u.blocked.tmout.deadline = cur_ticks + tmout;
+  task->u->blocked->tmout->deadline = cur_ticks + tmout;
   
-  pq_insert(tmout_pq, task->u.blocked.tmout.pq_node);
+  pq_insert(tmout_pq, task->u->blocked->tmout->pq_node);
 }
 
 static void
 tmout_erase(struct k9_task * const task)
 {
-  pq_erase(task->u.blocked.tmout.pq_node);
+  pq_erase(task->u->blocked->tmout->pq_node);
 }
 
 static unsigned 
@@ -251,9 +251,9 @@ tmout_chk(void)
   struct pq_node *nd;
 
   while (nd = pq_first(tmout_pq)) {
-    struct k9_task *task = FIELD_PTR_TO_STRUCT_PTR(nd, struct k9_task, u.blocked.tmout.pq_node);
+    struct k9_task *task = FIELD_PTR_TO_STRUCT_PTR(nd, struct k9_task, u->blocked->tmout->pq_node);
 
-    if (ticks_cmp(task->u.blocked.tmout.deadline, cur_ticks) > 0)  break;
+    if (ticks_cmp(task->u->blocked->tmout->deadline, cur_ticks) > 0)  break;
         
     task_unblock(task, K9_TIMED_OUT);
 
@@ -273,14 +273,14 @@ task_ticks_update(void)
         
     switch (task->state) {
     case K9_TASK_STATE_RUNNING:
-      ++task->stats->ticks_running;
+      ++task->stats->ticks->running;
       if (task->cur_slice != 0)  --task->cur_slice;
       break;
     case K9_TASK_STATE_READY:
-      ++task->stats->ticks_ready;
+      ++task->stats->ticks->ready;
       break;
     case K9_TASK_STATE_BLOCKED:
-      ++task->stats->ticks_blocked;
+      ++task->stats->ticks->blocked;
       break;
     default:
       ;
@@ -309,7 +309,7 @@ rdy_first(void)
 {
   struct pq_node *nd;
 
-  return ((nd = pq_first(rdy_pq)) ? FIELD_PTR_TO_STRUCT_PTR(nd, struct k9_task, u.ready.pq_node) : 0);
+  return ((nd = pq_first(rdy_pq)) ? FIELD_PTR_TO_STRUCT_PTR(nd, struct k9_task, u->ready->pq_node) : 0);
 }
 
 void
@@ -317,7 +317,7 @@ rdy_insert(struct k9_task *task)
 {
   if (task == idle_task)  return;
 
-  pq_insert(rdy_pq, task->u.ready.pq_node);
+  pq_insert(rdy_pq, task->u->ready->pq_node);
 }
 
 void
@@ -325,7 +325,7 @@ rdy_erase(struct k9_task *task)
 {
   if (task == idle_task)  return;
 
-  pq_erase(task->u.ready.pq_node);
+  pq_erase(task->u->ready->pq_node);
 }
 
 enum {
@@ -475,7 +475,7 @@ task_ev_wait_erase(struct k9_task * const task)
   struct k9_ev_wait_desc *w;
   unsigned                n;
   
-  for (w = task->u.blocked.wait, n = task->u.blocked.nwait; n; --n, ++w) {
+  for (w = task->u->blocked->ev->wait, n = task->u->blocked->ev->nwait; n; --n, ++w) {
     list_erase(w->list_node);
   }
   
@@ -487,7 +487,7 @@ task_unblock(struct k9_task * const task, int block_rc)
 {
   task_ev_wait_erase(task);
     
-  task->u.blocked.rc = block_rc;
+  task->u->blocked->rc = block_rc;
 
   task_ready(task);
 }
@@ -589,7 +589,7 @@ task_effpri_set(struct k9_task * const task, int pri)
       struct k9_ev_wait_desc *w;
       unsigned               n;
 
-      for (w = task->u.blocked.wait, n = task->u.blocked.nwait; n; --n, ++w) {
+      for (w = task->u->blocked->ev->wait, n = task->u->blocked->ev->nwait; n; --n, ++w) {
 	struct k9_ev *ev = w->ev;
 	
 	if (ev->base->magic == K9_OBJ_MAGIC_MUTEX
@@ -634,8 +634,8 @@ ev_init(struct k9_ev *ev, unsigned magic, char *id)
 static int
 ev_wait(unsigned nwait, struct k9_ev_wait_desc *wait, unsigned tmout)
 {
-  cur_task->u.blocked.nwait = nwait;
-  cur_task->u.blocked.wait  = wait;
+  cur_task->u->blocked->ev->nwait = nwait;
+  cur_task->u->blocked->ev->wait  = wait;
 
   for ( ; nwait; --nwait, ++wait) {
     wait->flag = 0;
@@ -645,7 +645,7 @@ ev_wait(unsigned nwait, struct k9_ev_wait_desc *wait, unsigned tmout)
 
   task_block(tmout);
 
-  return (cur_task->u.blocked.rc);
+  return (cur_task->u->blocked->rc);
 }
 
 
@@ -674,6 +674,14 @@ ev_signal(struct k9_ev * const ev, unsigned cnt)
   }
     
   return (n);
+}
+
+static struct k9_task *
+ev_first(struct k9_ev * const ev)
+{
+  struct list *p;
+
+  return (((p = LIST_FIRST(ev->list)) == LIST_END(ev->list)) ? 0 : FIELD_PTR_TO_STRUCT_PTR(p, struct k9_ev_wait_desc, list_node)->task);
 }
 
 /***************************************************************************/
@@ -973,20 +981,45 @@ k9_sem_init(struct k9_sem * const s, char *id, int cnt)
   s->cnt = cnt;
 }
 
+static void
+sem_chk_first(struct k9_sem * const s)
+{
+  struct k9_task *t;
+  
+  if ((t = ev_first(s->base)) && t->u->blocked->sem->n <= s->cnt) {
+    ev_signal(s->base, 1);
+  }
+}
 
 int
-k9_sem_take(struct k9_sem * const s, unsigned tmout)
+k9_sem_take(struct k9_sem * const s, unsigned n, unsigned tmout)
 {
   int    result = K9_OK;
   uint32 old;
 
   old = k9_cpu_intr_dis();
 
-  if (tmout == K9_TMOUT_NONE && s->cnt <= 0) {
-    result = K9_TIMED_OUT;
-  } else {
-    if (--s->cnt < 0)  result = ev_wait1(s->base, tmout);
+  if (ev_first(s->base) != 0 || n > s->cnt) {
+    if (tmout == K9_TMOUT_NONE) {
+      result = K9_TIMED_OUT;
+    } else {
+      cur_task->u->blocked->sem->n = n;
+
+      switch (result = ev_wait1(s->base, tmout)) {
+      case K9_OK:
+	break;
+
+      case K9_TIMED_OUT:
+	sem_chk_first(s);
+	break;
+
+      default:
+	assert(0);
+      }
+    }
   }
+
+  if (result == K9_OK)  s->cnt -= (int) n;
 
   k9_cpu_intr_restore(old);
 
@@ -995,14 +1028,15 @@ k9_sem_take(struct k9_sem * const s, unsigned tmout)
 
 
 void
-k9_sem_give(struct k9_sem * const s)
+k9_sem_give(struct k9_sem * const s, unsigned n)
 {
   uint32 old;
 
   old = k9_cpu_intr_dis();
 
-  ++s->cnt;
-  if (ev_signal(s->base, 1) != 0)  _k9_task_resched();
+  s->cnt += (int) n;
+
+  sem_chk_first(s);
 
   k9_cpu_intr_restore(old);
 }
@@ -1035,96 +1069,61 @@ k9_start(struct k9_task *root_task, struct k9_task *_idle_task, void *intr_stk_e
 
 #ifdef __UNIT_TEST__
 
+#include <stdlib.h>
 #include <stdio.h>
+
+#define PRINT_EXPR(f, x)  printf("%s = " f, #x, (x))
 
 void
 test_idle_main(void *arg)
 {
   printf("%s\n", "test_idle task starting...");
+
   for (;;) {
     printf("%s\n", "test_idle loop");
+
+#if 0
     k9_cpu_wait();
+#else
+    k9_cpu_isr((void (*)(void *)) k9_tick, 0);
+
+    if (cur_ticks >= 100)  exit(0);
+#endif
   }
   printf("%s\n", "test_idle task exiting");
 }
 
-struct k9_ev test_ev[2];
+struct k9_sem test_sem[1];
 
 void
-test_isr(void *arg)
+test_appl_main(void *arg)
 {
-  printf("%s\n", "test_isr task starting...");
+  unsigned n = (unsigned) arg;
+  int      rc;
 
-  printf("test_isr: Got arg %p\n", arg);
+  printf("%s\n", "test_appl task starting...");
 
-  k9_tick();
+  rc = k9_sem_take(test_sem, n, n == 10 ? 10 : K9_TMOUT_FOREVER);
 
-  if (k9_cpu_intr_lvl() == 1)  k9_cpu_isr(test_isr, (void *) 0x5678);
+  printf("test_appl: ");
+  PRINT_EXPR("%d", rc);
+  printf("\n");
 
-  printf("%s\n", "test_isr task ending");
-}
-
-void
-test_appl1_main(void *arg)
-{
-  unsigned cnt;
-
-  printf("%s\n", "test_appl1 task starting...");
-
-  for (;;) {
-    printf("%s\n", "test_appl1 signaling...");
-    k9_ev_signal(&test_ev[0]);
-
-    k9_cpu_isr(test_isr, (void *) 0x1234);
-
-    if (++cnt >= 10) {
-      printf("%s\n", "test_appl1 exiting...");
-
-      k9_task_exit(0);
-    }
-
-    printf("%s\n", "test_appl1 waiting...");
-    k9_ev_wait1(&test_ev[1], 0);
-  }
-
-  printf("%s\n", "test_appl1 task exiting");
-}
-
-void
-test_appl2_main(void *arg)
-{
-  printf("%s\n", "test_appl2 task starting...");
-
-  for (;;) {
-    printf("%s\n", "test_appl2 waiting...");
-    k9_ev_wait1(&test_ev[0], 0);
-
-    printf("%s\n", "test_appl2 signaling...");
-    k9_ev_signal(&test_ev[1]);
-  }
-
-  printf("%s\n", "test_appl2 task exiting");
+  printf("%s\n", "test_appl task exiting");
 }
 
 struct k9_task test_appl_task[2];
 unsigned char test_appl_stk[2][2048];
 
 struct {
-  struct k9_ev *ev;
-  char         *id;
-} ev_init_tbl[] = {
-  { &test_ev[0], "ev1" },
-  { &test_ev[1], "ev2" }
-};
-
-struct {
   struct k9_task *task;
   char           *id;
   unsigned char  *stk_top;
   void           (*entry)(void *);
+  void           *arg;
 } task_init_tbl[] = {
-  { &test_appl_task[1], "task2", END(test_appl_stk[1]), test_appl2_main },
-  { &test_appl_task[0], "task1", END(test_appl_stk[0]), test_appl1_main }
+  { &test_appl_task[0], "task1", END(test_appl_stk[0]), test_appl_main, (void *) 10 },
+  { &test_appl_task[1], "task2", END(test_appl_stk[1]), test_appl_main, (void *) 1 }
 };
 
 
@@ -1136,10 +1135,10 @@ test_root_main(void *arg)
   printf("%s\n", "test_root task starting...");
   printf("%s\n", (char *) arg);
 
-  for (i = 0; i < ARRAY_SIZE(ev_init_tbl); ++i)  k9_ev_init(ev_init_tbl[i].ev, ev_init_tbl[i].id);
+  k9_sem_init(test_sem, "sem1", 5);
 
   for (i = 0; i < ARRAY_SIZE(task_init_tbl); ++i) {
-    k9_task_init(task_init_tbl[i].task, task_init_tbl[i].id, task_init_tbl[i].stk_top, task_init_tbl[i].entry, 0);
+    k9_task_init(task_init_tbl[i].task, task_init_tbl[i].id, task_init_tbl[i].stk_top, task_init_tbl[i].entry, task_init_tbl[i].arg);
     task_init_tbl[i].task->slice = 100;
   }
 

@@ -50,9 +50,8 @@ struct pq_node {
 
 
 enum {
-  K9_OK          = 0,
-  K9_INTERRUPTED = -1,
-  K9_TIMED_OUT   = -2
+  K9_OK        = 0,
+  K9_TIMED_OUT = -1
 };
 
 enum {
@@ -130,25 +129,32 @@ struct k9_task {
   void   *sp;
 
   struct {
-    unsigned ticks_blocked;
-    unsigned ticks_ready;
-    unsigned ticks_running;
+    struct {
+      unsigned blocked;
+      unsigned ready;
+      unsigned running;
+    } ticks[1];
   } stats[1];
 
   union {
     struct {
-      unsigned               nwait;
-      struct k9_ev_wait_desc *wait;
+      struct {
+	unsigned               nwait;
+	struct k9_ev_wait_desc *wait;
+      } ev[1];
       struct {
 	struct pq_node pq_node[1];
 	unsigned       deadline;
-      } tmout;
+      } tmout[1];
+      struct {
+	int n;
+      } sem[1];
       int rc;
-    } blocked;
+    } blocked[1];
     struct {
       struct pq_node pq_node[1];
-    } ready;
-  } u;
+    } ready[1];
+  } u[1];
 };
 typedef struct k9_task k9_task[1];
 
@@ -180,8 +186,8 @@ struct k9_sem {
 typedef struct k9_sem k9_sem[1];
 
 void k9_sem_init(struct k9_sem * const s, char *id, int cnt);
-int  k9_sem_take(struct k9_sem * const s, unsigned tmout);
-void k9_sem_give(struct k9_sem * const s);
+int  k9_sem_take(struct k9_sem * const s, unsigned n, unsigned tmout);
+void k9_sem_give(struct k9_sem * const s, unsigned n);
 
 void k9_init(void);
 void k9_start(struct k9_task *root_task, struct k9_task *idle_task, void *intr_stk_end);
