@@ -38,9 +38,10 @@ k9_cpu_isr2:
 	movl	8(%esp),%eax
 	pushl	%eax
 	movl	8(%esp),%eax
-	call	%eax
+	call	*%eax
 	lea	4(%esp),%esp
 k9_cpu_isr3:
+#	cli			# In case called ISR re-enabled interrupts
 	movl	_intr_lvl,%eax
 	decl	%eax
 	movl	%eax,_intr_lvl

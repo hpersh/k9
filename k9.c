@@ -467,7 +467,7 @@ task_ready(struct k9_task * const task)
 }
 
 static void
-task_unblock(struct k9_task * const task, int block_rc)
+task_ev_wait_erase(struct k9_task * const task)
 {
   struct k9_ev_wait_desc *w;
   unsigned                n;
@@ -477,6 +477,12 @@ task_unblock(struct k9_task * const task, int block_rc)
   }
   
   tmout_erase(task);
+}
+
+static void
+task_unblock(struct k9_task * const task, int block_rc)
+{
+  task_ev_wait_erase(task);
     
   task->u.blocked.rc = block_rc;
 
@@ -496,32 +502,31 @@ task_block(unsigned tmout)
   _k9_task_resched();
 }
 
-struct k9_task *
-k9_task_start(struct k9_task *task)
+static unsigned
+task_stop(struct k9_task *task, unsigned new_state)
 {
-  uint32 old;
+  unsigned old_state;
 
-  old = k9_cpu_intr_dis();
-  
-  task_ready(task);
+  switch (old_state = task->state) {
+  case K9_TASK_STATE_RUNNING:
+    task->state = new_state;
+    break;
+    
+  case K9_TASK_STATE_READY:
+    if (!(task->flags & K9_TASK_FLAG_SUSPENDED))  rdy_erase(task);
+    task->state = new_state;
+    break;
 
-  _k9_task_resched();
+  case K9_TASK_STATE_BLOCKED:
+    task_ev_wait_erase(task);
+    task->state = new_state;
+    break;
 
-  k9_cpu_intr_restore(old);
+  default:
+    ;
+  }
 
-  return (task);
-}
-
-void
-k9_task_sleep(unsigned tmout)
-{
-  uint32 old;
-
-  old = k9_cpu_intr_dis();
-
-  task_block(tmout);
-
-  k9_cpu_intr_restore(old);
+  return (old_state == K9_TASK_STATE_RUNNING);
 }
 
 static unsigned
@@ -682,9 +687,97 @@ k9_task_init(struct k9_task *task, char *id, void *sp, void (*entry)(void *), vo
 
 
 struct k9_task *
+k9_task_start(struct k9_task *task)
+{
+  uint32 old;
+
+  old = k9_cpu_intr_dis();
+  
+  task_ready(task);
+
+  _k9_task_resched();
+
+  k9_cpu_intr_restore(old);
+
+  return (task);
+}
+
+
+void
+k9_task_stop(struct k9_task *task)
+{
+  uint32  old;
+
+  task = task_or_self(task);
+
+  assert(task != idle_task);
+
+  old = k9_cpu_intr_dis();
+
+  if (task_stop(task, K9_TASK_STATE_STOPPED))  _k9_task_resched();
+
+  k9_cpu_intr_restore(old);
+}
+
+
+void
+k9_task_exit(int code)
+{
+  k9_cpu_intr_dis();
+
+  assert(cur_task != idle_task);
+
+  cur_task->exit_code = code;
+
+  task_stop(cur_task, K9_TASK_STATE_EXITED);
+  
+  _k9_task_resched();
+}
+
+
+int
+k9_task_delete(struct k9_task *task)
+{
+  uint32   old;
+  unsigned f = 0;
+
+  task = task_or_self(task);
+
+  old = k9_cpu_intr_dis();
+
+  switch (task->state) {
+  case K9_TASK_STATE_STOPPED:
+  case K9_TASK_STATE_EXITED:
+  case K9_TASK_STATE_FAULTED:
+    break;
+
+  default:
+    return (-1);
+  }
+
+  list_erase(task->list_node);
+
+  k9_cpu_intr_restore(old);
+}
+
+
+struct k9_task *
 k9_task_self(void)
 {
   return (cur_task);
+}
+
+
+void
+k9_task_sleep(unsigned tmout)
+{
+  uint32 old;
+
+  old = k9_cpu_intr_dis();
+
+  task_block(tmout);
+
+  k9_cpu_intr_restore(old);
 }
 
 
@@ -739,20 +832,6 @@ k9_task_yield(void)
   _k9_task_resched();
 
   k9_cpu_intr_restore(old);
-}
-
-
-void
-k9_task_exit(int code)
-{
-  k9_cpu_intr_dis();
-
-  assert(cur_task != idle_task);
-
-  cur_task->exit_code = code;
-  cur_task->state     = K9_TASK_STATE_DEAD;
-  
-  _k9_task_resched();
 }
 
 
@@ -949,7 +1028,6 @@ k9_start(struct k9_task *root_task, struct k9_task *_idle_task, void *intr_stk_e
   k9_cpu_cntxt_restore(cur_task->sp);
 }
 
-
 /***************************************************************************/
 
 #ifdef __UNIT_TEST__
@@ -986,6 +1064,8 @@ test_isr(void *arg)
 void
 test_appl1_main(void *arg)
 {
+  unsigned cnt;
+
   printf("%s\n", "test_appl1 task starting...");
 
   for (;;) {
@@ -993,6 +1073,12 @@ test_appl1_main(void *arg)
     k9_ev_signal(&test_ev[0]);
 
     k9_cpu_isr(test_isr, (void *) 0x1234);
+
+    if (++cnt >= 10) {
+      printf("%s\n", "test_appl1 exiting...");
+
+      k9_task_exit(0);
+    }
 
     printf("%s\n", "test_appl1 waiting...");
     k9_ev_wait1(&test_ev[1], 0);
