@@ -982,7 +982,7 @@ k9_sem_init(struct k9_sem * const s, char *id, int cnt)
 }
 
 static void
-sem_chk_first(struct k9_sem * const s)
+sem_first_chk(struct k9_sem * const s)
 {
   struct k9_task *t;
   
@@ -1005,16 +1005,8 @@ k9_sem_take(struct k9_sem * const s, unsigned n, unsigned tmout)
     } else {
       cur_task->u->blocked->sem->n = n;
 
-      switch (result = ev_wait1(s->base, tmout)) {
-      case K9_OK:
-	break;
-
-      case K9_TIMED_OUT:
-	sem_chk_first(s);
-	break;
-
-      default:
-	assert(0);
+      if ((result = ev_wait1(s->base, tmout)) == K9_TIMED_OUT) {
+	sem_first_chk(s);
       }
     }
   }
@@ -1036,7 +1028,7 @@ k9_sem_give(struct k9_sem * const s, unsigned n)
 
   s->cnt += (int) n;
 
-  sem_chk_first(s);
+  sem_first_chk(s);
 
   k9_cpu_intr_restore(old);
 }
